@@ -88,6 +88,9 @@ class MotionEngine:
         self._error_listeners: list[Callable[[Exception], None]] = []
 
         self._thread: threading.Thread | None = None
+        # Set by the loop itself rather than by start(), so `running` is also
+        # true during a blocking run() -- which owns no thread handle.
+        self._loop_active = False
         self._stop = threading.Event()
         self._source: VideoSource | None = None
         self._lock = threading.RLock()
@@ -182,11 +185,6 @@ class MotionEngine:
         self._error_listeners.append(callback)
         return Subscription(lambda: _discard(self._error_listeners, callback))
 
-    def clear_listeners(self) -> None:
-        self._dispatcher.clear()
-        self._frame_listeners.clear()
-        self._error_listeners.clear()
-
     # =====================================================================
     # Lifecycle
     # =====================================================================
@@ -234,6 +232,8 @@ class MotionEngine:
 
     @property
     def running(self) -> bool:
+        if self._loop_active:
+            return True
         return self._thread is not None and self._thread.is_alive()
 
     def __enter__(self) -> "MotionEngine":
@@ -334,10 +334,6 @@ class MotionEngine:
         self._recognizers.append(recognizer)
         self._refresh_signals()
         return recognizer
-
-    def remove_recognizer(self, recognizer: Recognizer) -> None:
-        _discard(self._recognizers, recognizer)
-        self._refresh_signals()
 
     @property
     def recognizers(self) -> tuple[Recognizer, ...]:
@@ -461,9 +457,11 @@ class MotionEngine:
         provider.set_hands_enabled(any(self._dispatcher.has_listener(i) for i in hand_ids))
 
     def _run_loop(self, source: VideoSource) -> None:
+        self._loop_active = True
         try:
             source.open()
         except Exception as exc:
+            self._loop_active = False
             self._emit_error(exc)
             return
 
@@ -517,6 +515,7 @@ class MotionEngine:
                 recognizer.reset()
             self._extractor.reset()
             self._tracking = False
+            self._loop_active = False
             self._stop.set()
 
     def _process(self, image: np.ndarray, captured_at: float, index: int) -> FrameResult:
@@ -536,6 +535,7 @@ class MotionEngine:
         )
 
         events: tuple[Event, ...] = ()
+        levels: dict = {}
         if features is None:
             events = self._handle_tracking_loss(t, wall, index)
         else:
@@ -547,6 +547,7 @@ class MotionEngine:
             sink = Sink(self.config.activities)
             for recognizer in self._recognizers:
                 recognizer.update(features, sink)
+            levels = sink.levels
             events = self._dispatcher.build(sink, t, wall, index)
             if events:
                 self._dispatcher.deliver(events)
@@ -563,6 +564,7 @@ class MotionEngine:
             events=events,
             image=image if self.config.deliver_frames else None,
             latency=time.perf_counter() - started,
+            levels=levels,
         )
         for listener in tuple(self._frame_listeners):
             try:

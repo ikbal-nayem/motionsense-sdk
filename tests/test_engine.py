@@ -173,6 +173,30 @@ def test_submit_returns_the_frame_result():
     assert result.image is None  # deliver_frames is off
 
 
+def test_frame_result_exposes_poses_that_did_not_fire():
+    """The diagnostic surface. A pose that fails because its geometry was
+    rejected and one that fails because a landmark is invisible look identical
+    from outside otherwise, and they need opposite fixes."""
+    engine = MotionEngine(provider=Replay(standing_frames(5)))
+    result = engine.submit(IMAGE, timestamp=0.0)
+
+    assert "arms_crossed" in result.levels
+    active, _confidence, data = result.levels["arms_crossed"]
+    assert active is False
+    # Measured and rejected -> a real negative number, not NaN.
+    assert data["score"] < 0
+    assert not np.isnan(data["score"])
+
+
+def test_frame_result_marks_unmeasurable_poses_as_nan():
+    image, world = S.project(S.body(**STANDING))
+    image[[Pose.LEFT_WRIST, Pose.RIGHT_WRIST], 3] = 0.0  # wrists gone entirely
+    engine = MotionEngine(provider=Replay([Landmarks(pose=image, pose_world=world, hands=())]))
+
+    result = engine.submit(IMAGE, timestamp=0.0)
+    assert np.isnan(result.levels["arms_crossed"][2]["score"])
+
+
 def test_deliver_frames_attaches_the_image():
     engine = MotionEngine(EngineConfig(deliver_frames=True), provider=Replay(standing_frames(3)))
     result = engine.submit(IMAGE, timestamp=0.0)
@@ -246,6 +270,21 @@ def test_submit_is_rejected_while_running():
             engine.submit(IMAGE)
     finally:
         engine.stop()
+    assert engine.running is False
+
+
+def test_running_is_true_during_a_blocking_run():
+    """`run()` owns no thread handle, so `running` has to come from the loop
+    itself. A host embedding the engine in its own thread polls this."""
+    observed = []
+
+    engine = MotionEngine(provider=Replay(standing_frames(6)))
+    engine.on_frame(lambda result: observed.append(engine.running))
+    assert engine.running is False
+
+    engine.run(IterableSource([IMAGE] * 6, fps=30.0))
+
+    assert observed and all(observed)
     assert engine.running is False
 
 

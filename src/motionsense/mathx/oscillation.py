@@ -85,24 +85,13 @@ class OscillationDetector:
         self.min_samples = min_samples
         self._series = RingSeries(capacity=128)
         self._last_fire = float("-inf")
-        self._last_result: OscillationResult | None = None
-
-    @property
-    def last_result(self) -> OscillationResult | None:
-        return self._last_result
-
-    @property
-    def last_fire(self) -> float:
-        return self._last_fire
 
     def clear(self) -> None:
         self._series.clear()
-        self._last_result = None
 
     def update(self, t: float, value: float) -> OscillationResult | None:
         """Push a sample; returns a result on the frame the oscillation is confirmed."""
         self._series.push(t, value)
-        self._last_result = None
 
         if t - self._last_fire < self.cooldown:
             return None

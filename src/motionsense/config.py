@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from typing import Iterable, Literal
+from dataclasses import dataclass, field
+from typing import Literal
 
 __all__ = ["EngineConfig", "Tuning", "PRESETS"]
 
@@ -46,8 +46,21 @@ class Tuning:
     #: margin (1 = comfortably inside, 0 = exactly at the limit). These are the
     #: hysteresis band on that margin, shared by t_pose and arms_crossed.
     pose_margin_exit: float = -0.30
-    arms_crossed_midline: float = 0.08
-    arms_crossed_elbow_max: float = 125.0
+    #: How far the wrists must swap sides, measured as ``left.x - right.x``.
+    #: Relative rather than per-wrist-past-the-midline, so it survives a subject
+    #: standing off-centre and an asymmetric fold. Standing at rest reads about
+    #: -0.93; a tight fold reads +0.21 and a wide one +0.77.
+    arms_crossed_separation: float = 0.12
+    #: Bent elbows corroborate the pose but never veto it -- see
+    #: ``arms_crossed_min_visibility`` for why. Loose enough to tolerate the
+    #: noisy depth estimates that self-occlusion produces.
+    arms_crossed_elbow_max: float = 140.0
+    #: Folded arms tuck the hands under the opposite arm, so this is precisely
+    #: the pose that drives wrist visibility down -- applying the global
+    #: ``min_visibility`` here would make the activity undetectable by
+    #: construction. The crossing test is a strong enough constraint that a badly
+    #: extrapolated wrist will not satisfy it anyway.
+    arms_crossed_min_visibility: float = 0.30
 
     # -- posture ---------------------------------------------------------------
     lean_enter_deg: float = 17.0
@@ -114,10 +127,6 @@ class Tuning:
     pinch_enter: float = 0.34          # thumb-index gap / hand scale
     pinch_exit: float = 0.46
     hand_min_score: float = 0.6
-
-    def tuned(self, **overrides) -> "Tuning":
-        """Return a copy with the named fields replaced."""
-        return replace(self, **overrides)
 
 
 @dataclass(slots=True)
@@ -220,9 +229,6 @@ class EngineConfig:
 
     def wants(self, activity_id: str) -> bool:
         return self.activities is None or activity_id in self.activities
-
-    def limited_to(self, activity_ids: Iterable[str]) -> "EngineConfig":
-        return replace(self, activities=frozenset(activity_ids))
 
 
 PRESETS: dict[str, dict] = {

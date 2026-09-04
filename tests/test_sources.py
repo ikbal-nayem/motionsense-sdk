@@ -15,13 +15,31 @@ FRAME = np.zeros((48, 64, 3), dtype=np.uint8)
 
 
 class FakeCapture:
-    """Stands in for ``cv2.VideoCapture``, producing frames on demand."""
+    """Stands in for ``cv2.VideoCapture``, producing frames on demand.
 
-    def __init__(self, *, interval=0.002, fail_after=None, opens=True):
+    ``cold_reads`` fails the first N reads, the way a real webcam does while it
+    warms up. ``glitch_every`` fails one read periodically, the way USB cameras
+    do forever.
+    """
+
+    def __init__(
+        self,
+        *,
+        interval=0.002,
+        fail_after=None,
+        opens=True,
+        cold_reads=0,
+        glitch_every=None,
+        never_delivers=False,
+    ):
         self.interval = interval
         self.fail_after = fail_after
         self._opens = opens
+        self.cold_reads = cold_reads
+        self.glitch_every = glitch_every
+        self.never_delivers = never_delivers
         self.count = 0
+        self.attempts = 0
         self.released = False
         self.properties = {}
 
@@ -29,7 +47,14 @@ class FakeCapture:
         return self._opens
 
     def read(self):
+        self.attempts += 1
+        if self.never_delivers:
+            return False, None
+        if self.attempts <= self.cold_reads:
+            return False, None
         if self.fail_after is not None and self.count >= self.fail_after:
+            return False, None
+        if self.glitch_every and self.attempts % self.glitch_every == 0:
             return False, None
         time.sleep(self.interval)
         self.count += 1
@@ -113,13 +138,54 @@ def test_camera_read_is_not_stale_after_a_slow_consumer(fake_cv2):
         source.close()
 
 
-def test_camera_reports_a_lost_feed(fake_cv2):
-    fake_cv2(interval=0.001, fail_after=3)
-    source = CameraSource(0)
+def test_camera_survives_a_cold_start(fake_cv2):
+    """A webcam that reports itself open is often not yet delivering --
+    DirectShow devices fail their first reads while exposure settles. Treating
+    the first failure as a dead feed makes the camera unusable on machines where
+    it merely needed a moment."""
+    holder = fake_cv2(cold_reads=25, interval=0.001)
+    source = CameraSource(0, warmup=3.0)
     source.open()
     try:
-        deadline = time.perf_counter() + 2.0
-        with pytest.raises(SourceError):
+        frame = source.read(timeout=2.0)
+        assert frame is not None
+        assert holder["capture"].attempts > 25  # it really did retry
+    finally:
+        source.close()
+
+
+def test_camera_tolerates_intermittent_dropped_reads(fake_cv2):
+    """USB cameras glitch forever, not once. A single dropped read must not end
+    the session."""
+    fake_cv2(glitch_every=3, interval=0.001)
+    source = CameraSource(0, read_timeout=2.0)
+    source.open()
+    try:
+        for _ in range(10):
+            assert source.read(timeout=2.0) is not None
+    finally:
+        source.close()
+
+
+def test_camera_open_fails_fast_when_it_never_delivers(fake_cv2):
+    """Opening only reserves the handle. A camera held by another application
+    opens happily and then produces nothing, so the failure has to be reported
+    at open() with a message that says what to check."""
+    fake_cv2(never_delivers=True)
+    source = CameraSource(0, warmup=0.3)
+    with pytest.raises(SourceError, match="produced no frames"):
+        source.open()
+
+
+def test_camera_reports_a_lost_feed(fake_cv2):
+    """A sustained outage -- unplugged, or claimed by another app -- must still
+    surface, rather than being tolerated forever."""
+    fake_cv2(interval=0.001, fail_after=3)
+    source = CameraSource(0, read_timeout=0.3)
+    source.open()
+    try:
+        deadline = time.perf_counter() + 5.0
+        with pytest.raises(SourceError, match="lost the camera feed"):
             while time.perf_counter() < deadline:
                 source.read(timeout=0.2)
     finally:

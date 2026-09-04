@@ -157,13 +157,6 @@ class WindowedSlope:
             return 0.0
         return float(v.max() - v.min())
 
-    def net(self, now: float | None = None, window: float | None = None) -> float:
-        """Signed displacement from the oldest to the newest sample in the window."""
-        _, v = self._series.window(self.window if window is None else window, now)
-        if v.size < 2:
-            return 0.0
-        return float(v[-1] - v[0])
-
     def directness(self, now: float | None = None, window: float | None = None) -> float:
         """``|net| / span`` in ``[0, 1]``: 1 for a straight sweep, near 0 for a
         back-and-forth wobble.

@@ -66,18 +66,112 @@ def test_t_pose_rejects_bent_arms():
     assert "t_pose" not in harness.held()
 
 
-def test_arms_crossed():
-    from conftest import Harness
-
+def folded(left_wrist, right_wrist, left_elbow, right_elbow, *, visibility=1.0):
+    """An arms-crossed pose, optionally with the wrists partly occluded."""
     joints = S.body()
-    joints[Pose.LEFT_ELBOW] = np.array([-0.22, -0.20, 0.05])
-    joints[Pose.RIGHT_ELBOW] = np.array([0.22, -0.20, 0.05])
-    joints[Pose.LEFT_WRIST] = np.array([0.15, -0.28, 0.10])
-    joints[Pose.RIGHT_WRIST] = np.array([-0.15, -0.30, 0.12])
+    joints[Pose.LEFT_ELBOW] = np.array(left_elbow)
+    joints[Pose.RIGHT_ELBOW] = np.array(right_elbow)
+    joints[Pose.LEFT_WRIST] = np.array(left_wrist)
+    joints[Pose.RIGHT_WRIST] = np.array(right_wrist)
+    image, world = S.project(joints)
+    image[[Pose.LEFT_WRIST, Pose.RIGHT_WRIST], 3] = visibility
+    return image, world
 
-    harness = Harness()
-    harness.run(standing(8) + [S.project(joints) for _ in range(15)])
+
+FOLDS = {
+    # Forearms across the chest, hands out past the opposite side.
+    "wide": dict(
+        left_wrist=(0.15, -0.28, 0.10), right_wrist=(-0.15, -0.30, 0.12),
+        left_elbow=(-0.22, -0.20, 0.05), right_elbow=(0.22, -0.20, 0.05),
+    ),
+    # Hands gripping the opposite upper arms.
+    "gripping": dict(
+        left_wrist=(0.22, -0.24, 0.10), right_wrist=(-0.22, -0.30, 0.12),
+        left_elbow=(-0.21, -0.16, 0.02), right_elbow=(0.21, -0.18, 0.02),
+    ),
+    # A tight fold where the hands barely pass the midline.
+    "tight": dict(
+        left_wrist=(0.06, -0.26, 0.14), right_wrist=(-0.06, -0.32, 0.12),
+        left_elbow=(-0.20, -0.18, 0.02), right_elbow=(0.20, -0.20, 0.02),
+    ),
+    # Folded low, at the waist rather than the chest.
+    "low": dict(
+        left_wrist=(0.10, -0.14, 0.14), right_wrist=(-0.10, -0.18, 0.12),
+        left_elbow=(-0.19, -0.08, 0.02), right_elbow=(0.19, -0.10, 0.02),
+    ),
+}
+
+
+@pytest.mark.parametrize("style", sorted(FOLDS))
+def test_arms_crossed(make_harness, style):
+    harness = make_harness()
+    harness.run(standing(8) + [folded(**FOLDS[style]) for _ in range(15)])
     assert "arms_crossed" in harness.held()
+
+
+@pytest.mark.parametrize("visibility", [0.45, 0.32])
+def test_arms_crossed_survives_occluded_wrists(make_harness, visibility):
+    """Folding your arms tucks your hands under the opposite arm, so this is
+    exactly the pose that drives wrist visibility down. Applying the global
+    visibility gate here made the activity undetectable by construction."""
+    harness = make_harness()
+    poses = standing(8) + [folded(**FOLDS["tight"], visibility=visibility) for _ in range(15)]
+    harness.run(poses)
+    assert "arms_crossed" in harness.held()
+
+
+def test_arms_crossed_ignores_clasped_hands(make_harness):
+    """Hands together in front are at the same height and the same place -- the
+    wrists have not swapped sides, so there is no crossing."""
+    harness = make_harness()
+    poses = standing(8) + [
+        folded(
+            left_wrist=(0.02, -0.20, 0.20), right_wrist=(-0.02, -0.20, 0.20),
+            left_elbow=(-0.18, -0.16, 0.06), right_elbow=(0.18, -0.16, 0.06),
+        )
+        for _ in range(15)
+    ]
+    harness.run(poses)
+    assert "arms_crossed" not in harness.held()
+
+
+def test_arms_crossed_ignores_one_arm_reaching_across(make_harness):
+    harness = make_harness()
+    poses = standing(8) + [
+        folded(
+            left_wrist=(0.20, -0.28, 0.12), right_wrist=(0.46, 0.0, 0.0),
+            left_elbow=(-0.20, -0.18, 0.02), right_elbow=(0.30, -0.25, 0.0),
+        )
+        for _ in range(15)
+    ]
+    harness.run(poses)
+    assert "arms_crossed" not in harness.held()
+
+
+def test_arms_crossed_is_not_confused_by_an_off_centre_subject(make_harness):
+    """The crossing is measured between the wrists, not against the frame
+    midline, so standing to one side cannot fake it or mask it."""
+    for shift in (-0.18, 0.0, 0.18):
+        harness = make_harness()
+        image_world = [
+            S.project(_folded_joints(**FOLDS["tight"]), shift_x=shift) for _ in range(15)
+        ]
+        harness.run(standing(8, shift_x=shift) + image_world)
+        assert "arms_crossed" in harness.held(), f"shift={shift}"
+
+
+def _folded_joints(left_wrist, right_wrist, left_elbow, right_elbow):
+    joints = S.body()
+    joints[Pose.LEFT_ELBOW] = np.array(left_elbow)
+    joints[Pose.RIGHT_ELBOW] = np.array(right_elbow)
+    joints[Pose.LEFT_WRIST] = np.array(left_wrist)
+    joints[Pose.RIGHT_WRIST] = np.array(right_wrist)
+    return joints
+
+
+def test_standing_is_not_arms_crossed(harness):
+    harness.run(standing(20))
+    assert "arms_crossed" not in harness.held()
 
 
 @pytest.mark.parametrize(
@@ -353,6 +447,50 @@ def test_pinch(make_harness):
     ] * 12
     harness.run(poses, hands=hands)
     assert "left_pinch" in harness.held()
+
+
+def test_fist_closed_without_a_visible_body(make_harness):
+    """A desk framing that only shows a hand still has no pose landmarks at
+    all -- finger geometry does not need a body frame to be measured."""
+    config = EngineConfig(preset="fast", enable_hands=True)
+    harness = make_harness(config)
+    poses = [(None, None)] * 24
+    hands = [(S.hand("right", curl=1.0),)] * 24
+    harness.run(poses, hands=hands)
+
+    assert "right_fist_closed" in harness.held()
+
+
+def test_hands_down_does_not_fire_without_a_body(make_harness):
+    """``hands_down`` is the complement of the other three arm states, which
+    makes it a trap for a hands-only frame: no evidence for any of the other
+    three must not silently read as 'false', or the complement wrongly reports
+    the hands as down when the body was never even seen."""
+    config = EngineConfig(preset="fast", enable_hands=True)
+    harness = make_harness(config)
+    poses = [(None, None)] * 24
+    hands = [(S.hand("right", curl=1.0),)] * 24
+    harness.run(poses, hands=hands)
+
+    assert "hands_down" not in harness.held()
+
+
+def test_fist_closed_when_the_torso_is_out_of_frame(make_harness):
+    """Pose landmarks exist but are mostly extrapolated -- e.g. a webcam framed
+    tight on the desk. The torso gate must not also silence the hand."""
+    config = EngineConfig(preset="fast", enable_hands=True)
+    harness = make_harness(config)
+
+    def cropped():
+        image, world = S.project(S.body(**STANDING))
+        image[[Pose.LEFT_HIP, Pose.RIGHT_HIP, Pose.LEFT_SHOULDER, Pose.RIGHT_SHOULDER], 3] = 0.0
+        return image, world
+
+    poses = [cropped() for _ in range(24)]
+    hands = [(S.hand("right", curl=1.0),)] * 24
+    harness.run(poses, hands=hands)
+
+    assert "right_fist_closed" in harness.held()
 
 
 def test_hand_activities_release_when_the_hand_leaves(make_harness):

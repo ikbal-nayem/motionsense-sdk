@@ -11,7 +11,6 @@ from motionsense.mathx import (
     ExpSmoother,
     OneEuroFilter,
     OscillationDetector,
-    RunningQuantile,
     SchmittGate,
     WindowedSlope,
     angle_at,
@@ -281,18 +280,3 @@ def test_oscillation_ignores_a_single_sweep():
         assert detector.update(t, min(t, 0.6)) is None
 
 
-# -- quantile ---------------------------------------------------------------------
-def test_running_quantile_tracks_the_upper_mode_of_a_bimodal_signal():
-    """A mean would land between the modes; the point of a quantile is that it
-    does not."""
-    rng = np.random.default_rng(11)
-    estimator = RunningQuantile(tau=0.8, time_constant=2.0)
-    values = []
-    for i in range(2000):
-        # 70% of the time standing at 1.0, 30% crouched at 0.5.
-        x = 1.0 if rng.random() < 0.7 else 0.5
-        values.append(x)
-        estimator.update(x + rng.normal(0, 0.01), i / 30.0)
-
-    assert estimator.value > 0.9
-    assert estimator.value > np.mean(values)

@@ -38,12 +38,23 @@ class CameraSource(VideoSource):
         height: int | None = None,
         fps: float | None = None,
         api_preference: int | None = None,
+        warmup: float = 4.0,
+        read_timeout: float = 2.0,
     ):
         self.index = index
         self.width = width
         self.height = height
         self.fps = fps
         self.api_preference = api_preference
+        #: How long to wait for the camera's first frame. A webcam that reports
+        #: itself open is often not yet delivering: DirectShow devices in
+        #: particular fail their first reads for up to a couple of seconds while
+        #: exposure settles.
+        self.warmup = warmup
+        #: How long reads may keep failing before the feed is declared lost.
+        #: Individual failures are normal and transient; a sustained run of them
+        #: is not.
+        self.read_timeout = read_timeout
 
         self._cap = None
         self._thread: threading.Thread | None = None
@@ -97,10 +108,38 @@ class CameraSource(VideoSource):
             pass
 
         self._cap = cap
+        # Prove the device actually delivers before reporting success. Opening
+        # only reserves the handle -- a camera held by another application, or a
+        # ghost index, opens happily and then never produces a frame. Failing
+        # here gives the caller an accurate message instead of a mysterious
+        # "feed ended" a second later.
+        primed = self._prime(cap)
+        if primed is None:
+            cap.release()
+            self._cap = None
+            raise SourceError(
+                f"camera {self.index} opened but produced no frames within "
+                f"{self.warmup:.0f}s. It may be in use by another application."
+            )
+
+        self._counter = 1
+        self._latest = primed
+        self._consumed = 0
         self._running = True
         self._error = None
         self._thread = threading.Thread(target=self._grab_loop, name="motionsense-capture", daemon=True)
         self._thread.start()
+
+    def _prime(self, cap) -> Frame | None:
+        """Read until the camera yields a real frame, or the warm-up expires."""
+        deadline = time.perf_counter() + self.warmup
+        while True:
+            ok, image = cap.read()
+            if ok and image is not None and getattr(image, "size", 0):
+                return Frame(image=image, captured_at=time.perf_counter(), index=1)
+            if time.perf_counter() >= deadline:
+                return None
+            time.sleep(0.03)
 
     def close(self) -> None:
         self._running = False
@@ -117,15 +156,29 @@ class CameraSource(VideoSource):
     # -- capture ---------------------------------------------------------------
     def _grab_loop(self) -> None:
         cap = self._cap
+        last_good = time.perf_counter()
         while self._running and cap is not None:
             ok, image = cap.read()
-            if not ok:
-                with self._new_frame:
-                    self._error = "camera feed ended"
-                    self._running = False
-                    self._new_frame.notify_all()
-                return
-            now = time.perf_counter()
+            if not ok or image is None:
+                # A dropped read is normal: USB cameras glitch, and a laptop
+                # waking from sleep can miss several in a row. Only a sustained
+                # outage means the feed is actually gone, so give it until
+                # read_timeout to recover rather than tearing down on the first
+                # failure.
+                if time.perf_counter() - last_good >= self.read_timeout:
+                    with self._new_frame:
+                        self._error = (
+                            f"lost the camera feed (no frames for "
+                            f"{self.read_timeout:.0f}s). It may have been unplugged "
+                            f"or taken by another application."
+                        )
+                        self._running = False
+                        self._new_frame.notify_all()
+                    return
+                time.sleep(0.01)
+                continue
+
+            now = last_good = time.perf_counter()
             with self._new_frame:
                 if self._latest is not None and self._latest.index > self._consumed:
                     self._dropped += 1

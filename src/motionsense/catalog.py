@@ -7,8 +7,6 @@ SDK are listed under "extensions" below.
 
 from __future__ import annotations
 
-from typing import Iterable, Iterator
-
 from .types import ActivityDef, Signal, Trigger
 
 __all__ = [
@@ -120,15 +118,3 @@ def categories() -> tuple[str, ...]:
     return tuple(sorted({a.category for a in _registry.values()}))
 
 
-def signals_for(activity_ids: Iterable[str]) -> frozenset[Signal]:
-    """Union of the inputs needed to recognise the given activities."""
-    needed: set[Signal] = set()
-    for aid in activity_ids:
-        definition = _registry.get(aid)
-        if definition is not None:
-            needed |= definition.requires
-    return frozenset(needed)
-
-
-def __iter__() -> Iterator[ActivityDef]:  # pragma: no cover - convenience
-    return iter(_registry.values())

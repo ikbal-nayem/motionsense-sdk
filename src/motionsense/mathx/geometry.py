@@ -16,25 +16,12 @@ import numpy as np
 __all__ = [
     "angle_at",
     "angle_at3",
-    "angle_between",
     "direction",
-    "norm",
     "procrustes_scale",
     "signed_angle_from_up",
-    "unit",
 ]
 
 _EPS = 1e-9
-
-
-def norm(v: np.ndarray) -> float:
-    """Euclidean length of a 2-vector (cheaper than ``np.linalg.norm`` at this size)."""
-    return math.hypot(float(v[0]), float(v[1]))
-
-
-def unit(v: np.ndarray) -> np.ndarray:
-    n = norm(v)
-    return v / n if n > _EPS else np.zeros_like(v)
 
 
 def angle_at(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
@@ -78,13 +65,6 @@ def angle_at3(a: np.ndarray, b: np.ndarray, c: np.ndarray) -> float:
     dot = ux * vx + uy * vy + uz * vz
     if cross < _EPS and abs(dot) < _EPS:
         return 0.0
-    return math.atan2(cross, dot)
-
-
-def angle_between(u: np.ndarray, v: np.ndarray) -> float:
-    """Unsigned angle between two vectors, in ``[0, pi]``."""
-    cross = abs(float(u[0]) * float(v[1]) - float(u[1]) * float(v[0]))
-    dot = float(u[0]) * float(v[0]) + float(u[1]) * float(v[1])
     return math.atan2(cross, dot)
 
 

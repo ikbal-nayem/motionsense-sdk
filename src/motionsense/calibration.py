@@ -102,11 +102,6 @@ class CalibrationCollector:
         self._started = t
         self._values = {}
 
-    def progress(self, t: float) -> float:
-        if self._started is None:
-            return 0.0
-        return min(1.0, (t - self._started) / max(self.duration, 1e-6))
-
     def add(self, features, t: float) -> None:
         """Sample the calibratable features of one frame."""
         if self._started is None:

@@ -41,7 +41,7 @@ engine.start()          # background threads, returns immediately
 - [Performance](#performance)
 - [Calibration](#calibration)
 - [Testing](#testing)
-- [Migrating from the MotionKey app](#migrating-from-the-motionkey-app)
+- [How the MotionKey app uses it](#how-the-motionkey-app-uses-it)
 
 ---
 
@@ -87,12 +87,14 @@ Runnable examples in [`examples/`](examples/):
 
 | File | Shows |
 |---|---|
+| `00_check_camera.py` | verify a camera works, in isolation |
 | `01_listen.py` | minimal listener |
 | `02_keyboard.py` | game control via key bindings |
 | `03_custom_activity.py` | your own activities, two ways |
 | `04_offline_video.py` | deterministic analysis of a recording |
 | `05_control_profiles.py` | one gesture set per context, swapped at runtime |
 | `06_preview.py` | live preview window with overlay |
+| `07_diagnose.py` | why a pose isn't firing |
 
 ---
 
@@ -345,10 +347,24 @@ Actions may take the `Event` or no arguments; both are detected.
 ```python
 from motionsense import CameraSource, VideoFileSource, IterableSource, CallableSource
 
-CameraSource(0, width=1280, height=720)
+CameraSource(0, width=1280, height=720, warmup=4.0, read_timeout=2.0)
 VideoFileSource("clip.mp4", realtime=False, loop=False)
 IterableSource(frames, fps=30.0)        # any iterable of BGR arrays
 CallableSource(grab_frame)              # pull from a function
+```
+
+`CameraSource` treats a camera as unreliable, because it is. `warmup` is how
+long to wait for the *first* frame: opening a device only reserves the handle,
+and a webcam that reports itself open commonly fails its first reads for a
+second or more while exposure settles. `read_timeout` is how long reads may keep
+failing mid-stream before the feed is declared lost — USB cameras glitch
+routinely, and treating one dropped read as a dead camera ends sessions that
+would have recovered on the next frame.
+
+If a camera misbehaves, check it in isolation before suspecting detection:
+
+```bash
+python examples/00_check_camera.py      # probes indices 0-3, reports what each does
 ```
 
 Subclass `VideoSource` for anything else. Two flags shape how the engine treats
@@ -474,6 +490,7 @@ ratio produces the same feature values to within 1e-3.
 | Occlusion | use whatever the detector reports | visibility gate, `NaN` for unknown | Detectors extrapolate landmarks that are out of frame. Trusting those is the largest single source of phantom activations. |
 | Smoothing | fixed-α EMA, or none | 1-Euro filter | A fixed low-pass forces a choice between jitter and lag. 1-Euro adapts its cutoff to speed: measured ~3× less lag than a fixed cutoff at the same steadiness. |
 | Tracking loss | drop everything, or latch forever | grace window, then release | Detection misses the odd frame with a person standing still. Ending on the first miss makes every hold stutter; never ending leaves a key down after the user walks away. |
+| Arms crossed | wrists past the body midline, elbows bent | wrists swapped sides (`left.x − right.x`), elbows advisory | Folding your arms *hides your wrists*, so the strict form fails on people holding the pose correctly. A relative crossing test also survives an off-centre subject and an asymmetric fold. |
 | Left/right | trust the detector's labels | swap handedness for non-mirrored input | MediaPipe assigns handedness *assuming a mirrored image*. On a raw camera feed every label is the wrong hand. |
 
 ### Where it is still limited
@@ -490,6 +507,33 @@ Honest boundaries, all inherent to one RGB camera:
 - Thresholds are population averages until you [calibrate](#calibration).
 
 ---
+
+### Debugging a pose that isn't firing
+
+```bash
+python examples/07_diagnose.py arms_crossed
+```
+
+Every processed frame carries `FrameResult.levels` — every level activity that
+was considered, **including the ones that did not fire**, with the score it was
+judged on:
+
+```python
+@engine.on_frame
+def why(result):
+    active, confidence, data = result.levels["arms_crossed"]
+    print(active, data["score"])
+```
+
+There are two distinct failures and they need opposite fixes:
+
+| score | meaning | fix |
+|---|---|---|
+| negative | the geometry was measured and rejected | go further into the pose, or loosen the threshold. The value is in units of the hysteresis band, so −0.4 is 40% of a band short |
+| `NaN` | it could not be measured — a required landmark is not visible | fix framing or lighting. Loosening a threshold cannot help; nothing was compared to it |
+
+From outside they look identical — the pose just never fires — which is why the
+score is surfaced rather than kept internal.
 
 ## Performance
 
@@ -556,7 +600,7 @@ reliably contains frames where a landmark jumps.
 ## Testing
 
 ```bash
-pytest                      # 124 tests, ~3 s, no camera needed
+pytest                      # 140 tests, ~5 s, no camera needed
 ```
 
 Recognizers are driven by a parametric 3D stick figure
@@ -572,28 +616,52 @@ to test with recorded video and easy to break without noticing.
 
 ---
 
-## Migrating from the MotionKey app
+## How the MotionKey app uses it
 
-The SDK is a separate package; the existing `core/` app is untouched and keeps
-working. All 19 of its activity ids exist here unchanged, so a saved key
-configuration maps over directly:
+The MotionKey app in the parent directory runs on this SDK. It is a useful
+worked example of embedding the engine in a GUI, and of the one thing that needs
+care: **who calls your listeners.**
+
+`core/camera_worker.py` is the whole integration — about 100 lines, and nothing
+in it is about detection:
 
 ```python
-# was: CameraWorker(mappings) with core.detector.ActivityDetector
-from motionsense import EngineConfig, MotionEngine
-from motionsense.bindings import KeyBindings
+class CameraWorker(QThread):
+    def run(self):
+        config = EngineConfig(
+            preset="fast",
+            deliver_frames=True,
+            enable_hands=needs_hand_model(mapped),          # only if a finger key is bound
+            tuning=Tuning(vertical_swipes=any_vertical_swipe_mapped),
+        )
+        engine = MotionEngine(config)
+        KeyBindings(engine, self.mappings)                   # the dict straight from SQLite
 
-engine = MotionEngine(EngineConfig(preset="fast", deliver_frames=True))
-keys = KeyBindings(engine, db.get_mappings(config_id))   # same dict, unchanged
+        engine.on_frame(self._on_frame)                      # preview + active list
+        engine.on_error(lambda exc: self.error.emit(str(exc)))
 
-engine.on_frame(lambda result: emit_preview(result))     # replaces frame_ready
-engine.on_any(lambda event: emit_log(str(event)))        # replaces log_message
-engine.on_error(lambda exc: emit_error(str(exc)))        # replaces error
-
-engine.start()
+        engine.run(CameraSource(self.camera_index))          # blocks on this QThread
 ```
 
-What changes behaviourally: detection is scale- and frame-rate invariant, level
-activities are debounced so mapped keys stop chattering, key taps no longer
-block the detection thread for 50 ms, the hand model only runs when a finger
-activity is mapped, and six activities are new (`swipe_*`, `*_pinch`).
+Running the engine with `run()` on the `QThread`, rather than `start()`, is
+deliberate: the engine's listeners then fire on a thread Qt already knows about,
+so the signals reaching the GUI are ordinary queued connections. Calling
+`start()` here would work too, but the callbacks would arrive on a thread Qt
+never created.
+
+Two more details worth copying:
+
+- `on_frame` supplies both the preview image *and* `result.active`, so the app
+  needs no wildcard subscription. That matters, because a wildcard would defeat
+  `enable_hands="auto"` and make the hand model run permanently.
+- The overlay from `motionsense.draw.render` is BGR, and `QImage.Format_BGR888`
+  reads it directly — no per-frame colour conversion.
+
+The migration needed no database change: all 19 of the app's original activity
+ids exist here unchanged, with the same level/edge triggers, so saved key
+configurations kept working as-is.
+
+What changed behaviourally: detection became scale- and frame-rate invariant,
+level activities are debounced so mapped keys stop chattering, key taps no
+longer block the detection thread for 50 ms, the hand model runs only when a
+finger activity is mapped, and six activities are new (`swipe_*`, `*_pinch`).

@@ -106,6 +106,34 @@ def test_missing_torso_yields_no_features():
     assert extractor.update(image, world, (), 0.0, 4 / 3) is None
 
 
+def test_hands_report_without_any_pose():
+    """A close desk framing that cuts the torso out of the shot still has a
+    hand model result; finger geometry needs no body frame to be usable."""
+    extractor = FeatureExtractor(CONFIG)
+    features = extractor.update(None, None, (S.hand("right", curl=1.0),), 0.0, 4 / 3)
+
+    assert features is not None
+    assert features.hands[0].side == "right"
+    assert features.hands[0].curl < 0.92
+    assert np.isnan(features.scale)
+    assert np.isnan(features.torso_lean)
+    assert np.isnan(features.left_elbow_angle)
+
+
+def test_hands_report_when_torso_is_not_visible():
+    joints = S.body()
+    image, world = S.project(joints)
+    image[[Pose.LEFT_HIP, Pose.RIGHT_HIP, Pose.LEFT_SHOULDER, Pose.RIGHT_SHOULDER], 3] = 0.0
+
+    extractor = FeatureExtractor(CONFIG)
+    features = extractor.update(image, world, (S.hand("left", curl=1.0),), 0.0, 4 / 3)
+
+    assert features is not None
+    assert features.hands[0].side == "left"
+    assert features.hands[0].curl < 0.92
+    assert np.isnan(features.shoulder_center_height)
+
+
 def test_hand_curl_and_pinch_are_scale_free():
     extractor = FeatureExtractor(CONFIG)
     image, world = S.project(S.body())

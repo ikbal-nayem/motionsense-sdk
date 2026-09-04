@@ -136,6 +136,14 @@ class FrameResult:
     image: np.ndarray | None = None
     #: Seconds spent between receiving the frame and finishing dispatch.
     latency: float = 0.0
+    #: Every level activity this frame considered, including the ones that did
+    #: *not* fire: ``{id: (active, confidence, data)}``. This is the answer to
+    #: "why isn't my pose detecting" -- the ``data`` of a built-in pose carries
+    #: the score it was judged on, where a negative value means the geometry was
+    #: measured and rejected and NaN means it could not be measured at all
+    #: (a landmark it needs is not visible). Those two failures have completely
+    #: different fixes, and without this they look identical from outside.
+    levels: Mapping[str, tuple[bool, float, Mapping[str, Any]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

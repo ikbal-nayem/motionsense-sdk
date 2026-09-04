@@ -83,10 +83,6 @@ class ActionRouter:
         self._subs.setdefault(activity, []).append(sub)
         return self
 
-    def unbind(self, activity: str) -> None:
-        for sub in self._subs.pop(activity, ()):
-            sub.cancel()
-
     def clear(self) -> None:
         for subs in self._subs.values():
             for sub in subs:

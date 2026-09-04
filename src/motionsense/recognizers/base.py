@@ -4,23 +4,24 @@ from __future__ import annotations
 
 import math
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
-from ..catalog import register
 from ..config import Tuning
 from ..features import BodyFeatures
 from ..mathx import SchmittGate
-from ..types import ActivityDef, Signal, Trigger
+from ..types import ActivityDef, Trigger
 
 __all__ = [
     "PredicateRecognizer",
     "Recognizer",
     "Sink",
+    "combine",
     "margin",
     "margin_at_least",
     "min_margin",
     "nanmax",
     "nanmean",
+    "weakest_available",
 ]
 
 
@@ -57,9 +58,6 @@ class Sink:
         entry = self.levels.get(activity_id)
         return bool(entry and entry[0])
 
-    def active_ids(self) -> frozenset[str]:
-        return frozenset(k for k, v in self.levels.items() if v[0])
-
 
 class Recognizer(ABC):
     """Turns :class:`~motionsense.features.BodyFeatures` into activity output.
@@ -73,13 +71,6 @@ class Recognizer(ABC):
     #: Activities this recognizer can produce. Registered into the catalog on attach.
     activities: tuple[ActivityDef, ...] = ()
 
-    def signals(self) -> frozenset[Signal]:
-        """Inputs this recognizer needs, unioned over its activities."""
-        needed: set[Signal] = set()
-        for a in self.activities:
-            needed |= a.requires
-        return frozenset(needed)
-
     def configure(self, tuning: Tuning) -> None:
         """Called when the engine starts, before the first frame."""
 
@@ -89,12 +80,6 @@ class Recognizer(ABC):
 
     def reset(self) -> None:
         """Drop temporal state. Called when tracking is lost or the engine stops."""
-
-    def on_tracking_lost(self, t: float, out: Sink) -> None:
-        """Called on frames with no detectable body. Default: release everything."""
-        for a in self.activities:
-            if a.is_level:
-                out.level(a.id, False, 0.0)
 
 
 class PredicateRecognizer(Recognizer):
@@ -221,6 +206,32 @@ def nanmax(*values: float) -> float:
     return best if best != float("-inf") else float("nan")
 
 
+def weakest_available(*values: float) -> float:
+    """Weakest of the margins that could actually be measured, NaN if none could.
+
+    The counterpart to :func:`min_margin`, for *supporting* conditions rather
+    than essential ones. ``min_margin`` treats an unmeasurable condition as
+    disqualifying, which is right when the pose cannot be confirmed without it.
+    But some conditions rely on landmarks that the pose itself tends to hide --
+    an occluding pose would then veto its own detection. Those belong here,
+    where being unmeasurable means "no objection" instead of "no".
+    """
+    worst = float("inf")
+    for v in values:
+        if not math.isnan(v) and v < worst:
+            worst = v
+    return worst if worst != float("inf") else float("nan")
+
+
+def combine(essential: float, supporting: float) -> float:
+    """Essential margin, further limited by any supporting margin that exists."""
+    if math.isnan(essential):
+        return float("nan")
+    if math.isnan(supporting):
+        return essential
+    return essential if essential < supporting else supporting
+
+
 def min_margin(*values: float) -> float:
     """Weakest of several margins, propagating NaN.
 
@@ -236,14 +247,6 @@ def min_margin(*values: float) -> float:
         if v < worst:
             worst = v
     return worst if worst != float("inf") else float("nan")
-
-
-def register_all(activities: Iterable[ActivityDef]) -> None:
-    for a in activities:
-        try:
-            register(a)
-        except ValueError:
-            pass  # already known (the built-in catalog, or a re-attach)
 
 
 def _clamp01(x: float) -> float:

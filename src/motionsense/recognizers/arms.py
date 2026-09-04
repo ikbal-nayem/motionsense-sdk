@@ -7,7 +7,15 @@ from ..config import Tuning
 from ..features import BodyFeatures
 from ..landmarks import Pose
 from ..mathx import SchmittGate
-from .base import Recognizer, Sink, margin, margin_at_least, min_margin
+from .base import (
+    Recognizer,
+    Sink,
+    combine,
+    margin,
+    margin_at_least,
+    min_margin,
+    weakest_available,
+)
 
 __all__ = ["ArmsRecognizer"]
 
@@ -63,11 +71,16 @@ class ArmsRecognizer(Recognizer):
 
         both = left_up and right_up
         out.level("both_hands_up", both, min(left_conf, right_conf))
-        out.level("left_hand_up", left_up and not both, left_conf)
-        out.level("right_hand_up", right_up and not both, right_conf)
-        out.level("hands_down", not left_up and not right_up and not t_pose, 1.0)
-        out.level("t_pose", t_pose, self._t_pose.confidence)
-        out.level("arms_crossed", crossed, self._crossed.confidence)
+        out.level("left_hand_up", left_up and not both, left_conf, rise=_r(f.left_hand_rise))
+        out.level("right_hand_up", right_up and not both, right_conf, rise=_r(f.right_hand_rise))
+        # A complement of the other three: without a body none of them is
+        # actually known to be false, so this must not default to true either.
+        out.level("hands_down", f.has_body and not left_up and not right_up and not t_pose, 1.0)
+        # Scores go into the event data so a pose that is not firing can be
+        # diagnosed from outside: a negative score says the geometry was
+        # measured and rejected, NaN says it could not be measured at all.
+        out.level("t_pose", t_pose, self._t_pose.confidence, score=_r(t_pose_score))
+        out.level("arms_crossed", crossed, self._crossed.confidence, score=_r(crossed_score))
 
     # -- scores ----------------------------------------------------------------
     def _t_pose_score(self, f: BodyFeatures) -> float:
@@ -95,21 +108,50 @@ class ArmsRecognizer(Recognizer):
         )
 
     def _crossed_score(self, f: BodyFeatures) -> float:
-        """Both wrists past the midline, held at chest height, elbows bent."""
+        """Wrists swapped sides and held at chest height.
+
+        This pose hides the landmarks that identify it: folded arms tuck each
+        hand under the opposite arm, so wrist visibility drops and any feature
+        derived from a wrist -- the elbow angles included -- becomes
+        unmeasurable. Testing it the obvious way therefore fails on exactly the
+        people holding the pose properly. Three things follow from that:
+
+        * wrists are accepted at a lower visibility than the global gate;
+        * the essential test uses only wrist *positions*, which the detector
+          still estimates when confidence is low;
+        * elbow flexion is supporting evidence that cannot veto.
+
+        The crossing itself is measured as ``left.x - right.x`` rather than each
+        wrist against the body midline. A relative test needs no assumption that
+        the subject is centred and does not care whether the fold is
+        symmetric -- and it separates far better: at rest it reads about -0.93,
+        against +0.21 for even a tight fold.
+        """
         tn = self._tuning
-        if not f.visible(Pose.LEFT_WRIST, Pose.RIGHT_WRIST):
+        if not all(
+            f.vis[i] >= tn.arms_crossed_min_visibility
+            for i in (Pose.LEFT_WRIST, Pose.RIGHT_WRIST)
+        ):
             return float("nan")
 
         lw = f.P[Pose.LEFT_WRIST]
         rw = f.P[Pose.RIGHT_WRIST]
-        top = float(f.shoulder_center[1]) + 0.12
-        return min_margin(
-            margin_at_least(float(lw[0]), tn.arms_crossed_midline, 0.15),
-            margin(float(rw[0]), -tn.arms_crossed_midline, 0.15),
+        top = float(f.shoulder_center[1]) + 0.15
+
+        essential = min_margin(
+            margin_at_least(float(lw[0]) - float(rw[0]), tn.arms_crossed_separation, 0.18),
             margin_at_least(float(lw[1]), 0.15, 0.15),
             margin_at_least(float(rw[1]), 0.15, 0.15),
             margin(float(lw[1]), top, 0.20),
             margin(float(rw[1]), top, 0.20),
+        )
+        supporting = weakest_available(
             margin(f.left_elbow_angle, tn.arms_crossed_elbow_max, 30.0),
             margin(f.right_elbow_angle, tn.arms_crossed_elbow_max, 30.0),
         )
+        return combine(essential, supporting)
+
+
+def _r(value: float) -> float:
+    """Round for event data, leaving NaN intact so 'unmeasurable' stays visible."""
+    return value if value != value else round(float(value), 3)

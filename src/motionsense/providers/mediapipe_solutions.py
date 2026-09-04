@@ -143,10 +143,10 @@ class MediaPipeSolutionsProvider(LandmarkProvider):
         )
 
         if pose is None:
-            # Hand landmarks without a body cannot be normalised, and stale ones
-            # would keep finger activities latched after the user leaves.
-            self._last_hands = ()
-            return Landmarks(None, None, ())
+            # Finger geometry is self-normalised (wrist-to-knuckle span), so a
+            # hand the model still sees is usable without a body -- e.g. a
+            # close-up desk framing that cuts off the torso entirely.
+            return Landmarks(None, None, hands)
 
         if not self.config.mirrored_input:
             pose[:, 0] = 1.0 - pose[:, 0]

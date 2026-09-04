@@ -150,8 +150,10 @@ class MediaPipeTasksProvider(LandmarkProvider):
 
         pose = self._first(getattr(pose_result, "pose_landmarks", None), Pose.COUNT, world=False)
         if pose is None:
-            self._last_hands = ()
-            return Landmarks(None, None, ())
+            # Finger geometry is self-normalised, so a hand the model still sees
+            # is usable without a body -- e.g. a close-up desk framing that cuts
+            # off the torso entirely.
+            return Landmarks(None, None, hands)
 
         world = self._first(getattr(pose_result, "pose_world_landmarks", None), Pose.COUNT, world=True)
 

@@ -80,6 +80,13 @@ class BodyFeatures:
     """
 
     t: float
+    #: Whether a torso was located this frame. ``False`` for a hand seen without
+    #: a body -- every body-derived field below is then NaN, exactly like an
+    #: occluded landmark. NaN is not enough on its own for a recognizer whose
+    #: output is the logical complement of other pose states (``hands_down`` is
+    #: the built-in example): "no evidence" must not collapse to "false" there,
+    #: or the complement wrongly reads as true. Check this field instead.
+    has_body: bool
     #: Body scale in frame-height units; the divisor that produced ``P``.
     scale: float
     aspect: float
@@ -174,13 +181,17 @@ class FeatureExtractor:
         t: float,
         aspect: float,
     ) -> BodyFeatures | None:
-        """Build features for one frame, or ``None`` if the body cannot be located."""
+        """Build features for one frame, or ``None`` if nothing can be reported."""
+        hand_features = tuple(
+            f for f in (self._hand_features(h, aspect) for h in hands) if f is not None
+        )
+
         if pose is None:
             # A long gap means the next detection is a fresh acquisition; carrying
             # filter state across it would drag the new pose toward the old one.
             if self._last_t is not None and t - self._last_t > _TRACKING_GAP:
                 self.reset()
-            return None
+            return self._hands_only(hand_features, t, aspect) if hand_features else None
 
         if self._last_t is not None and t - self._last_t > _TRACKING_GAP:
             self.reset()
@@ -188,8 +199,9 @@ class FeatureExtractor:
 
         vis = pose[:, 3]
         if not all(vis[i] >= self.config.tuning.min_visibility for i in TORSO):
-            # Without a torso there is no body frame, so nothing can be normalised.
-            return None
+            # Without a torso there is no body frame to normalise against -- but
+            # finger geometry needs no body frame, so a visible hand still reports.
+            return self._hands_only(hand_features, t, aspect) if hand_features else None
 
         # Aspect-correct, then filter. Filtering after correction keeps the
         # 1-Euro speed term isotropic -- otherwise horizontal motion would look
@@ -225,10 +237,54 @@ class FeatureExtractor:
             w[:, 1] *= -1.0
             W = w
 
-        return self._assemble(P, W, vis, xy, hip_center, scale, aspect, hands, t)
+        return self._assemble(P, W, vis, xy, hip_center, scale, aspect, hand_features, t)
+
+    def _hands_only(self, hand_features: tuple[HandFeatures, ...], t: float, aspect: float) -> BodyFeatures:
+        """Features for a frame where a hand is seen but no body frame can be built.
+
+        Most commonly a close desk framing that cuts the torso out of the shot.
+        Finger geometry is self-normalised (wrist-to-knuckle span), so it needs
+        no body frame. Every body-derived field is set the same way an occluded
+        landmark already is elsewhere: NaN, which the recognizers already treat
+        as "no evidence" rather than "false" -- so body-based poses silently
+        stay quiet instead of tripping on placeholder geometry, while hand
+        recognizers, the only ones that read ``hands``, work exactly as usual.
+        """
+        empty = np.full((Pose.COUNT, 2), NAN)
+        return BodyFeatures(
+            t=t,
+            has_body=False,
+            scale=NAN,
+            aspect=aspect,
+            P=empty,
+            W=None,
+            vis=np.zeros(Pose.COUNT),
+            min_visibility=self.config.tuning.min_visibility,
+            hands=hand_features,
+            calibration=self._calibration,
+            shoulder_center=np.array([NAN, NAN]),
+            torso_center=np.array([NAN, NAN]),
+            torso_lean=NAN,
+            nose_above_shoulders=NAN,
+            shoulder_center_height=NAN,
+            shoulder_width=NAN,
+            elevation=NAN,
+            left_hand_rise=NAN,
+            right_hand_rise=NAN,
+            left_elbow_angle=NAN,
+            right_elbow_angle=NAN,
+            left_arm_tilt=NAN,
+            right_arm_tilt=NAN,
+            arm_length=NAN,
+            left_knee_angle=NAN,
+            right_knee_angle=NAN,
+            left_thigh_vertical=NAN,
+            right_thigh_vertical=NAN,
+            thigh_length=NAN,
+        )
 
     # -- feature assembly ------------------------------------------------------
-    def _assemble(self, P, W, vis, xy, hip_center, scale, aspect, hands, t) -> BodyFeatures:
+    def _assemble(self, P, W, vis, xy, hip_center, scale, aspect, hand_features, t) -> BodyFeatures:
         cfg = self.config.tuning
         min_vis = cfg.min_visibility
 
@@ -281,12 +337,9 @@ class FeatureExtractor:
         r_thigh_v, r_thigh_len = self._thigh(P, vis, min_vis, Pose.RIGHT_HIP, Pose.RIGHT_KNEE)
         thigh_length = _nanmean2(l_thigh_len, r_thigh_len)
 
-        hand_features = tuple(
-            f for f in (self._hand_features(h, aspect) for h in hands) if f is not None
-        )
-
         return BodyFeatures(
             t=t,
+            has_body=True,
             scale=scale,
             aspect=aspect,
             P=P,
