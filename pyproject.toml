@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "motionsense"
+version = "0.1.0"
+description = "Real-time human activity events from any video source. Feed it video, subscribe to activities, drive anything."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["pose", "gesture", "mediapipe", "computer-vision", "hci", "activity-recognition"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dependencies = [
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+    # Deliberately unpinned across the 0.10 / 1.0 divide. MediaPipe removed the
+    # `solutions` API in 1.0; the provider layer supports both and picks at
+    # runtime, so adding this package cannot force a MediaPipe version on a host
+    # application that already depends on one. Verified against 0.10.21
+    # (numpy 1.26, opencv 4.11) and 1.0.1 (numpy 2.x, opencv 5.x).
+    "mediapipe>=0.10.9",
+]
+
+[project.optional-dependencies]
+# Keyboard/mouse binding helpers (motionsense.bindings.keys).
+keys = ["keyboard>=0.13.5"]
+dev = ["pytest>=8.0"]
+
+[project.urls]
+Source = "https://github.com/your-org/motionsense"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/motionsense"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
