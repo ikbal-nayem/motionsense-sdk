@@ -55,14 +55,20 @@ _TRACKING_GAP = 0.4
 
 @dataclass(slots=True)
 class HandFeatures:
-    """Finger geometry for one hand, in ratios that are free of scale and rotation."""
+    """Finger geometry for one hand, in ratios free of scale, rotation and view.
+
+    The ratios are measured in three dimensions, not on the image plane: a hand
+    angled toward or away from the camera foreshortens, and a gap between two
+    fingertips that lies mostly along the view direction all but disappears in
+    projection while being entirely real.
+    """
 
     side: str
     score: float
     #: Mean over the four non-thumb fingers of ``|tip - wrist| / |pip - wrist|``.
     #: Below ~1.0 the fingertips have curled inside their own knuckles.
     curl: float
-    #: Thumb-to-index-tip distance over hand size. Below ~0.35 is a pinch.
+    #: Thumb-to-index-tip 3D distance over hand size. Below ~0.35 is a pinch.
     pinch: float
     #: Palm centre in aspect-corrected image coordinates.
     center: np.ndarray
@@ -417,13 +423,21 @@ class FeatureExtractor:
     def _hand_features(self, sample: HandSample, aspect: float) -> HandFeatures | None:
         if sample.score < self.config.tuning.hand_min_score:
             return None
-        pts = sample.points[:, :2].astype(np.float64, copy=True)
-        pts[:, 0] *= aspect
+        # Ratios are measured in 3D; only the display copy below is flattened.
+        # A thumb held in front of or behind the index is genuinely far from it,
+        # but projects to almost no gap at all -- measuring the pinch on the
+        # image plane alone reports that as a pinch. Depth costs nothing here:
+        # the detector already returns z for every landmark, on roughly the same
+        # scale as x. Aspect correction applies to x only; z is not an image
+        # axis and must not be stretched with the frame.
+        space = sample.points.astype(np.float64, copy=True)
+        space[:, 0] *= aspect
+        pts = space[:, :2]
 
-        wrist = pts[Hand.WRIST]
+        wrist = space[Hand.WRIST]
         # Hand size from the wrist-to-middle-knuckle span: rigid, always visible,
         # and unaffected by whether the fingers are curled.
-        hand_scale = float(np.hypot(*(pts[Hand.MIDDLE_MCP] - wrist)))
+        hand_scale = float(np.linalg.norm(space[Hand.MIDDLE_MCP] - wrist))
         if hand_scale < 1e-6:
             return None
 
@@ -433,13 +447,13 @@ class FeatureExtractor:
         # wrist does not care which way the hand is rotated.
         ratios = []
         for tip, pip, _mcp in Hand.FINGERS:
-            d_pip = float(np.hypot(*(pts[pip] - wrist)))
+            d_pip = float(np.linalg.norm(space[pip] - wrist))
             if d_pip < 1e-6:
                 continue
-            ratios.append(float(np.hypot(*(pts[tip] - wrist))) / d_pip)
+            ratios.append(float(np.linalg.norm(space[tip] - wrist)) / d_pip)
         curl = float(sum(ratios) / len(ratios)) if ratios else NAN
 
-        pinch = float(np.hypot(*(pts[Hand.THUMB_TIP] - pts[Hand.INDEX_TIP]))) / hand_scale
+        pinch = float(np.linalg.norm(space[Hand.THUMB_TIP] - space[Hand.INDEX_TIP])) / hand_scale
 
         return HandFeatures(
             side=sample.side,

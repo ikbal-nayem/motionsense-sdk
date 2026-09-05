@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Pinch no longer fires on a thumb and index that are far apart in depth.
+  Hand ratios (`pinch`, `curl`, hand scale) were measured on the image plane
+  only, so a gap lying along the view direction all but vanished in projection
+  and read as a pinch; they are now measured in 3D.
+
 ## [0.1.0] - 2026-09-05
 
 Initial release.

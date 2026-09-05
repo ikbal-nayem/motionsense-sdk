@@ -8,7 +8,7 @@ import pytest
 import synthetic as S
 from motionsense import EngineConfig
 from motionsense.features import FeatureExtractor
-from motionsense.landmarks import Pose
+from motionsense.landmarks import Hand, Pose
 
 CONFIG = EngineConfig(preset="fast")
 
@@ -148,6 +148,29 @@ def test_hand_curl_and_pinch_are_scale_free():
 
     assert a.hands[0].curl == pytest.approx(b.hands[0].curl, rel=1e-3)
     assert a.hands[0].pinch == pytest.approx(b.hands[0].pinch, rel=1e-3)
+
+
+def test_pinch_is_not_fooled_by_a_gap_along_the_view_direction():
+    """The reported failure: fingers plainly apart, but reported as pinching.
+
+    A hand angled toward the camera separates thumb from index mostly in depth,
+    which projects to almost no gap at all. Measured on the image plane the two
+    tips look touching; measured in 3D they are as far apart as they really are.
+    """
+    extractor = FeatureExtractor(CONFIG)
+    image, world = S.project(S.body())
+
+    hand = S.hand("right", curl=0.0, pinch=1.0)
+    # Park the thumb tip right on top of the index tip in x/y, then pull it well
+    # away from the camera. Nothing about the real gap has shrunk.
+    hand.points[Hand.THUMB_TIP] = (
+        hand.points[Hand.INDEX_TIP][0],
+        hand.points[Hand.INDEX_TIP][1],
+        hand.points[Hand.INDEX_TIP][2] + 0.10,
+    )
+
+    features = extractor.update(image, world, (hand,), 0.0, 4 / 3)
+    assert features.hands[0].pinch > CONFIG.tuning.pinch_exit
 
 
 def test_hand_curl_separates_open_from_closed():
