@@ -9,6 +9,7 @@ description = "Real-time human activity events from any video source. Feed it vi
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+authors = [{ name = "Ikbal Nayem", email = "ikbalnayem000@gmail.com" }]
 keywords = ["pose", "gesture", "mediapipe", "computer-vision", "hci", "activity-recognition"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -37,7 +38,9 @@ keys = ["keyboard>=0.13.5"]
 dev = ["pytest>=8.0"]
 
 [project.urls]
-Source = "https://github.com/your-org/motionsense"
+Source = "https://github.com/ikbal-nayem/motionsense-sdk"
+Issues = "https://github.com/ikbal-nayem/motionsense-sdk/issues"
+Changelog = "https://github.com/ikbal-nayem/motionsense-sdk/blob/master/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/motionsense"]

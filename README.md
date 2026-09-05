@@ -1,5 +1,9 @@
 # motionsense
 
+[![test](https://github.com/ikbal-nayem/motionsense-sdk/actions/workflows/test.yml/badge.svg)](https://github.com/ikbal-nayem/motionsense-sdk/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
+
 Real-time human activity events from any video source.
 
 Feed it video, subscribe to activities, drive anything. The SDK detects *what
@@ -42,10 +46,19 @@ engine.start()          # background threads, returns immediately
 - [Calibration](#calibration)
 - [Testing](#testing)
 - [How the MotionKey app uses it](#how-the-motionkey-app-uses-it)
+- [License](#license)
 
 ---
 
 ## Install
+
+```bash
+pip install git+https://github.com/ikbal-nayem/motionsense-sdk.git          # core: numpy, opencv, mediapipe
+pip install "motionsense[keys] @ git+https://github.com/ikbal-nayem/motionsense-sdk.git"  # + keyboard/mouse output
+```
+
+Working on the SDK itself, or pinning it into another project from a local
+checkout:
 
 ```bash
 pip install -e path/to/motionsense-sdk          # core: numpy, opencv, mediapipe
@@ -665,3 +678,9 @@ What changed behaviourally: detection became scale- and frame-rate invariant,
 level activities are debounced so mapped keys stop chattering, key taps no
 longer block the detection thread for 50 ms, the hand model runs only when a
 finger activity is mapped, and six activities are new (`swipe_*`, `*_pinch`).
+
+---
+
+## License
+
+[MIT](LICENSE). See [CHANGELOG.md](CHANGELOG.md) for release history.

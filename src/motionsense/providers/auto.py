@@ -28,7 +28,9 @@ def available_backend() -> str:
     if hasattr(mp, "solutions") and hasattr(mp.solutions, "pose"):
         return "solutions"
     try:
-        from mediapipe.tasks.python import vision  # noqa: F401
+        import importlib
+
+        importlib.import_module("mediapipe.tasks.python.vision")
     except ImportError:
         return "none"
     return "tasks"

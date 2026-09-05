@@ -1,0 +1,42 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+        # The provider layer supports both MediaPipe generations and picks
+        # automatically at runtime -- both are exercised here, or a break in
+        # either one only shows up after release.
+        mediapipe: ["mediapipe>=0.10.9,<0.11", "mediapipe>=1.0"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          pip install -e ".[dev]"
+          pip install "${{ matrix.mediapipe }}"
+
+      - name: Test
+        run: pytest -q
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyflakes
+      - run: pyflakes src/motionsense tests examples
