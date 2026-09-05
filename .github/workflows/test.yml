@@ -23,6 +23,13 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install system libraries
+        # OpenCV and MediaPipe's native builds link against OpenGL ES / EGL
+        # even for plain CPU inference; a bare runner has none of it installed.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0 libgles2 libegl1 libsm6 libxext6 libxrender1 libgomp1
+
       - name: Install
         run: |
           pip install -e ".[dev]"
