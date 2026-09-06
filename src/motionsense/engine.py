@@ -562,7 +562,7 @@ class MotionEngine:
             hands=landmarks.hands,
             active=self._dispatcher.active,
             events=events,
-            image=image if self.config.deliver_frames else None,
+            image=image if self._deliver_this_frame() else None,
             latency=time.perf_counter() - started,
             levels=levels,
         )
@@ -572,6 +572,19 @@ class MotionEngine:
             except Exception:
                 log.exception("frame listener raised")
         return result
+
+    def _deliver_this_frame(self) -> bool:
+        """Whether this frame's image rides along on the result.
+
+        Counted off the engine's own frame tally rather than the source's frame
+        index: a live camera drops stale frames, so its indices have gaps, and
+        an interval taken from those would land irregularly. The phase starts at
+        the first frame so a preview has something to show immediately.
+        """
+        if not self.config.deliver_frames:
+            return False
+        interval = self.config.preview_interval
+        return interval <= 1 or (self._frames - 1) % interval == 0
 
     def _handle_tracking_loss(self, t: float, wall: float, index: int) -> tuple[Event, ...]:
         """Hold state briefly, then release everything.

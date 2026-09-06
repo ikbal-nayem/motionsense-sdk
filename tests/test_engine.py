@@ -203,6 +203,39 @@ def test_deliver_frames_attaches_the_image():
     assert result.image is IMAGE
 
 
+def test_preview_interval_attaches_the_image_every_nth_frame():
+    """Drawing the preview costs real time on the detection thread, so it can be
+    run at a fraction of the detection rate. The phase starts at the first frame
+    so a preview is not blank until the interval comes round."""
+    engine = MotionEngine(
+        EngineConfig(deliver_frames=True, preview_interval=3),
+        provider=Replay(standing_frames(9)),
+    )
+    delivered = [
+        engine.submit(IMAGE, timestamp=i / 30.0).image is not None for i in range(9)
+    ]
+    assert delivered == [True, False, False, True, False, False, True, False, False]
+
+
+def test_preview_interval_does_not_gate_anything_but_the_image():
+    """Only the preview is thinned. Activity state has to stay per-frame, or a
+    mapped key would wait on a frame that happens to be drawing."""
+    engine = MotionEngine(
+        EngineConfig(deliver_frames=True, preview_interval=4),
+        provider=Replay(raised_frames(12)),
+    )
+    results = [engine.submit(IMAGE, timestamp=i / 30.0) for i in range(12)]
+
+    assert sum(r.image is not None for r in results) == 3
+    # The pose is held throughout, on every frame, image or no image.
+    assert all("left_hand_up" in r.active for r in results[3:])
+
+
+def test_preview_interval_must_be_positive():
+    with pytest.raises(ValueError, match="preview_interval"):
+        EngineConfig(preview_interval=0)
+
+
 def test_losing_the_body_releases_held_activities():
     frames = raised_frames(20) + [Landmarks(None, None, ())] * 30
     engine = MotionEngine(provider=Replay(frames))

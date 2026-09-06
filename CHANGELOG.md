@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `EngineConfig.preview_interval`: attach the source image to `FrameResult`
+  every Nth frame rather than all of them. Drawing the skeleton overlay costs
+  ~0.7 ms on the detection thread, which is immaterial against ~15 ms of
+  inference but not on hardware where inference already fills the frame budget.
+  Only the preview is thinned — activity state, events and stats still update
+  every frame. Skipped frames carry `image=None`, so `render()` returns `None`
+  and consumers need no new branch.
+
 ## [0.2.0] - 2026-09-06
 
 ### Added

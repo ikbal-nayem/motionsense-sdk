@@ -218,6 +218,17 @@ class EngineConfig:
     emit_updates: bool = False
     #: Attach the source image to ``FrameResult``. Only needed for preview.
     deliver_frames: bool = False
+    #: Attach it on every Nth frame rather than all of them. Drawing a skeleton
+    #: over the frame costs about 0.7 ms -- little against ~15 ms of inference,
+    #: but it is spent on the thread that detects, so it is worth having a dial
+    #: for it on hardware where inference alone already fills the frame budget.
+    #: A preview at half or a third of the detection rate is hard to notice.
+    #: Skipped frames arrive with ``image=None``, which is what an unset
+    #: ``deliver_frames`` already produces, so consumers need no new branch:
+    #: :func:`motionsense.draw.render` returns ``None`` and there is nothing to
+    #: draw. Every other field of :class:`~motionsense.types.FrameResult` is
+    #: unaffected, so activity state and stats still update every frame.
+    preview_interval: int = 1
 
     # -- scope ----------------------------------------------------------------------
     #: Restrict recognition to these activity ids. ``None`` means everything.
@@ -238,6 +249,8 @@ class EngineConfig:
             self.inference_width = base["inference_width"]
         if self.hands_interval <= 0:
             raise ValueError("hands_interval must be >= 1")
+        if self.preview_interval <= 0:
+            raise ValueError("preview_interval must be >= 1")
 
     def wants(self, activity_id: str) -> bool:
         return self.activities is None or activity_id in self.activities

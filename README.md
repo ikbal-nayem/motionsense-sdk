@@ -294,10 +294,26 @@ EngineConfig(
     activities=None,            # restrict to a set of ids
     mirrored_input=False,       # True if your frames are already selfie-flipped
     deliver_frames=False,       # attach the image to FrameResult
+    preview_interval=1,         # attach it every Nth frame instead
     emit_updates=False,         # UPDATE events every frame a pose is held
     tuning=Tuning(),            # all recognizer thresholds
 )
 ```
+
+`preview_interval` exists because drawing a preview is not free and is not
+free *somewhere harmless*: the skeleton overlay costs about 0.7 ms and is spent
+on the thread that detects, so on hardware where inference alone already fills
+the frame budget it comes out of reaction time. Raising it thins only the
+preview — activity state, events and stats still update on every frame, so a
+mapped key never waits for a frame that happens to be drawing:
+
+```python
+EngineConfig(deliver_frames=True, preview_interval=3)   # preview at a third the rate
+```
+
+Skipped frames arrive with `image=None`, exactly as they do when
+`deliver_frames` is off, so `render()` returns `None` and there is nothing new
+to branch on.
 
 Presets set model complexity and inference resolution: `fast` (lite model,
 480 px), `balanced` (full, 640), `accurate` (heavy, 800).
