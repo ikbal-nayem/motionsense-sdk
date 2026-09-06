@@ -5,10 +5,35 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-06
+
+### Added
+
+- `left_thumbs_up` / `right_thumbs_up` activities: hand closed with the thumb
+  extended and pointing up. Judged on the thumb alone, since a thumbs-up curls
+  the same four fingers a fist does — it therefore suppresses `fist_closed`
+  rather than firing alongside it.
+- `HandFeatures.thumb_extension`, `HandFeatures.thumb_up` and
+  `HandFeatures.outer_curl`, the geometry the above is built on.
+- `Tuning.thumbs_up_extension_min`, `Tuning.thumbs_up_direction_min` and
+  `Tuning.pinch_outer_curl_min`.
+
+### Changed
+
+- `HandFeatures` gained three fields, so constructing one **positionally** now
+  breaks. It is handed to you by the engine rather than built by callers, so
+  this should not reach normal use; construct it by keyword if you do build one.
+- `fist_closed` no longer holds while a thumbs-up does, and `pinch` no longer
+  holds while the hand is closed. If you had a binding relying on the old
+  co-firing, it will now see only the more specific gesture.
 
 ### Fixed
 
+- Pinch no longer fires on a closed fist. A fist folds the thumb across the
+  curled index, putting the two tips as close together as a deliberate pinch
+  does, so the thumb-to-index gap alone could not separate them. A pinch is now
+  corroborated by the fingers it does not use — the middle, ring and pinky must
+  not themselves be curled into a fist.
 - Pinch no longer fires on a thumb and index that are far apart in depth.
   Hand ratios (`pinch`, `curl`, hand scale) were measured on the image plane
   only, so a gap lying along the view direction all but vanished in projection
@@ -43,4 +68,5 @@ Initial release.
 - 140+ tests covering the math layer, feature normalisation, recognizers,
   engine lifecycle and both MediaPipe backends.
 
+[0.2.0]: https://github.com/ikbal-nayem/motionsense-sdk/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ikbal-nayem/motionsense-sdk/releases/tag/v0.1.0

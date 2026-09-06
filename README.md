@@ -216,8 +216,22 @@ is enabled automatically only when something subscribes to one of them.
 | `right_fist_open` | pose | hands | Right hand open with fingers extended |
 | `left_pinch` | pose | hands | Left thumb and index fingertip touching |
 | `right_pinch` | pose | hands | Right thumb and index fingertip touching |
+| `left_thumbs_up` | pose | hands | Left hand closed with the thumb extended upward |
+| `right_thumbs_up` | pose | hands | Right hand closed with the thumb extended upward |
 
 Left and right are always the **subject's** own, corrected for mirroring.
+
+The hand gestures are kept from contradicting each other, because a mapped key
+should not be pressed by a gesture that merely resembles the one it is bound to.
+`fist_open` and `fist_closed` share one hysteresis band, so a half-curled hand
+reports neither rather than alternating between them. A thumbs-up curls the same
+four fingers a fist does, so it suppresses `fist_closed` — the more specific
+reading wins. And a pinch has to be corroborated by the fingers it does *not*
+use: a fist folds the thumb across the curled index, which puts those two tips
+as close together as a deliberate pinch does, so the gap alone cannot tell them
+apart. `thumbs_up` is judged on the thumb being extended and pointing up
+(`thumbs_up_direction_min` is a cosine, so the default 0.70 allows about 45° of
+hand tilt).
 
 ```python
 from motionsense import catalog

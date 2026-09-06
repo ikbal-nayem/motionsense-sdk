@@ -173,6 +173,55 @@ def test_pinch_is_not_fooled_by_a_gap_along_the_view_direction():
     assert features.hands[0].pinch > CONFIG.tuning.pinch_exit
 
 
+def hand_features(**kwargs):
+    extractor = FeatureExtractor(CONFIG)
+    image, world = S.project(S.body())
+    return extractor.update(image, world, (S.hand("right", **kwargs),), 0.0, 4 / 3).hands[0]
+
+
+def test_outer_curl_ignores_the_index():
+    """A pinch curls the index to meet the thumb, so the four-finger mean drops
+    toward a fist. Excluding the index is what keeps the two distinguishable."""
+    pinching = hand_features(curl=0.0, pinch=0.15)
+    fist = hand_features(curl=1.0)
+
+    assert pinching.outer_curl > 1.2  # middle, ring and pinky still extended
+    assert fist.outer_curl < 0.92  # every finger in
+
+
+def test_thumb_extension_separates_a_folded_thumb_from_an_extended_one():
+    folded = hand_features(curl=1.0, thumb="folded")
+    extended = hand_features(curl=1.0, thumb="up")
+
+    assert folded.thumb_extension < 1.0  # tip no further out than its own joint
+    assert extended.thumb_extension > 1.3
+
+
+def test_thumb_direction_is_signed_against_image_up():
+    """Hand landmarks keep the image's y-down convention, unlike the body frame.
+    Getting the sign wrong here would invert the gesture entirely."""
+    up = hand_features(curl=1.0, thumb="up")
+    assert up.thumb_up == pytest.approx(1.0, abs=0.05)
+
+    down = S.hand("right", curl=1.0, thumb="up")
+    # Reflect the thumb below its own knuckle to point the same hand downward.
+    mcp_y = down.points[Hand.THUMB_MCP][1]
+    for index in (Hand.THUMB_IP, Hand.THUMB_TIP):
+        down.points[index][1] = mcp_y + (mcp_y - down.points[index][1])
+    extractor = FeatureExtractor(CONFIG)
+    image, world = S.project(S.body())
+    flipped = extractor.update(image, world, (down,), 0.0, 4 / 3).hands[0]
+    assert flipped.thumb_up == pytest.approx(-1.0, abs=0.05)
+
+
+def test_a_folded_thumb_looks_like_a_pinch_by_gap_alone():
+    """The reason the gap needs corroborating: this hand is a fist, and its raw
+    thumb-to-index gap sits below the pinch threshold anyway."""
+    fist = hand_features(curl=1.0, thumb="folded")
+    assert fist.pinch < CONFIG.tuning.pinch_enter
+    assert fist.outer_curl < CONFIG.tuning.pinch_outer_curl_min  # what rules it out
+
+
 def test_hand_curl_separates_open_from_closed():
     extractor = FeatureExtractor(CONFIG)
     image, world = S.project(S.body())

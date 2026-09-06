@@ -65,11 +65,12 @@ class HandFeatures:
 
     side: str
     score: float
-    #: Mean over the four non-thumb fingers of ``|tip - wrist| / |pip - wrist|``.
-    #: Below ~1.0 the fingertips have curled inside their own knuckles.
     curl: float
+    outer_curl: float
     #: Thumb-to-index-tip 3D distance over hand size. Below ~0.35 is a pinch.
     pinch: float
+    thumb_extension: float
+    thumb_up: float
     #: Palm centre in aspect-corrected image coordinates.
     center: np.ndarray
     points: np.ndarray
@@ -86,12 +87,6 @@ class BodyFeatures:
     """
 
     t: float
-    #: Whether a torso was located this frame. ``False`` for a hand seen without
-    #: a body -- every body-derived field below is then NaN, exactly like an
-    #: occluded landmark. NaN is not enough on its own for a recognizer whose
-    #: output is the logical complement of other pose states (``hands_down`` is
-    #: the built-in example): "no evidence" must not collapse to "false" there,
-    #: or the complement wrongly reads as true. Check this field instead.
     has_body: bool
     #: Body scale in frame-height units; the divisor that produced ``P``.
     scale: float
@@ -110,15 +105,10 @@ class BodyFeatures:
     # -- derived scalars (NaN when the inputs are not visible) ----------------
     shoulder_center: np.ndarray
     torso_center: np.ndarray
-    #: Torso tilt from vertical in degrees; positive leans to the subject's right.
     torso_lean: float
-    #: Height of the nose above the shoulder line, in body units.
     nose_above_shoulders: float
     shoulder_center_height: float
     shoulder_width: float
-    #: Torso centre height above the bottom of the frame, in body units. This is
-    #: the only *absolute* vertical feature -- everything else is hip-relative,
-    #: which would cancel out exactly the whole-body motion a jump consists of.
     elevation: float
     left_hand_rise: float
     right_hand_rise: float
@@ -423,13 +413,7 @@ class FeatureExtractor:
     def _hand_features(self, sample: HandSample, aspect: float) -> HandFeatures | None:
         if sample.score < self.config.tuning.hand_min_score:
             return None
-        # Ratios are measured in 3D; only the display copy below is flattened.
-        # A thumb held in front of or behind the index is genuinely far from it,
-        # but projects to almost no gap at all -- measuring the pinch on the
-        # image plane alone reports that as a pinch. Depth costs nothing here:
-        # the detector already returns z for every landmark, on roughly the same
-        # scale as x. Aspect correction applies to x only; z is not an image
-        # axis and must not be stretched with the frame.
+        
         space = sample.points.astype(np.float64, copy=True)
         space[:, 0] *= aspect
         pts = space[:, :2]
@@ -441,10 +425,6 @@ class FeatureExtractor:
         if hand_scale < 1e-6:
             return None
 
-        # Curl as a radial ratio about the wrist. The obvious test -- fingertip
-        # lower on screen than its own knuckle -- only works for an upright hand
-        # and inverts entirely when the hand points downward. Distance from the
-        # wrist does not care which way the hand is rotated.
         ratios = []
         for tip, pip, _mcp in Hand.FINGERS:
             d_pip = float(np.linalg.norm(space[pip] - wrist))
@@ -452,14 +432,33 @@ class FeatureExtractor:
                 continue
             ratios.append(float(np.linalg.norm(space[tip] - wrist)) / d_pip)
         curl = float(sum(ratios) / len(ratios)) if ratios else NAN
+        # Hand.FINGERS runs index, middle, ring, pinky -- drop the index.
+        outer = ratios[1:]
+        outer_curl = float(sum(outer) / len(outer)) if outer else NAN
 
         pinch = float(np.linalg.norm(space[Hand.THUMB_TIP] - space[Hand.INDEX_TIP])) / hand_scale
+
+        # The thumb measured the same way the fingers are: how far the tip
+        # reaches past its own joint, relative to the wrist.
+        d_ip = float(np.linalg.norm(space[Hand.THUMB_IP] - wrist))
+        thumb_extension = (
+            float(np.linalg.norm(space[Hand.THUMB_TIP] - wrist)) / d_ip if d_ip > 1e-6 else NAN
+        )
+
+        # Direction is an image-plane question, so this uses the 2D copy: +y runs
+        # down the image, hence the negated y for "up".
+        reach = pts[Hand.THUMB_TIP] - pts[Hand.THUMB_MCP]
+        reach_len = float(np.hypot(reach[0], reach[1]))
+        thumb_up = float(-reach[1]) / reach_len if reach_len > 1e-6 else NAN
 
         return HandFeatures(
             side=sample.side,
             score=sample.score,
             curl=curl,
+            outer_curl=outer_curl,
             pinch=pinch,
+            thumb_extension=thumb_extension,
+            thumb_up=thumb_up,
             center=pts.mean(axis=0),
             points=pts,
         )

@@ -126,6 +126,18 @@ class Tuning:
     fist_closed_exit: float = 1.06
     pinch_enter: float = 0.34          # thumb-index gap / hand scale
     pinch_exit: float = 0.46
+    #: A fist folds the thumb across the curled index, putting the two tips
+    #: together -- geometrically a pinch, and the gap alone cannot tell them
+    #: apart. What can is the rest of the hand: a pinch leaves the middle, ring
+    #: and pinky out of it. This only has to clear the fist boundary above, not
+    #: demand a splayed hand, or an ordinary pinch with relaxed fingers would
+    #: stop registering.
+    pinch_outer_curl_min: float = 0.95
+    #: A thumbs-up curls the same four fingers a fist does, so it is separated by
+    #: the thumb alone: extended rather than folded away, and pointing up.
+    thumbs_up_extension_min: float = 1.05
+    #: cos(angle from vertical), so 0.70 allows about 45 degrees of hand tilt.
+    thumbs_up_direction_min: float = 0.70
     hand_min_score: float = 0.6
 
 

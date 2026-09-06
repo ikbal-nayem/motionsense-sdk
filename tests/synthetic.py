@@ -148,9 +148,24 @@ def project(
     return image, world
 
 
-def hand(side: str, *, curl: float = 0.0, pinch: float = 1.0, center=(0.5, 0.5)) -> HandSample:
+def hand(
+    side: str, *, curl: float = 0.0, pinch: float = 1.0, center=(0.5, 0.5), thumb: str | None = None
+) -> HandSample:
     """A 21-point hand. ``curl`` 0 is flat open, 1 is a closed fist; ``pinch`` 1
-    is wide apart, 0 is thumb touching index."""
+    is wide apart, 0 is thumb touching index.
+
+    ``thumb`` overrides the thumb, which otherwise trails the index tip at a
+    distance set by ``pinch``. That default cannot pose a thumb independently of
+    the fingers, so it can express neither of the two gestures that are *about*
+    the thumb:
+
+    ``"folded"``
+        across the curled fingers, where a real fist puts it. The tip lands
+        beside the index tip, so this is the hand that makes a bare
+        thumb-to-index gap indistinguishable from a pinch.
+    ``"up"``
+        extended and vertical, clear of the fingers -- a thumbs-up.
+    """
     points = np.zeros((Hand.COUNT, 3), dtype=np.float32)
     scale = 0.10
     cx, cy = center
@@ -180,12 +195,25 @@ def hand(side: str, *, curl: float = 0.0, pinch: float = 1.0, center=(0.5, 0.5))
             points[pip][2] + distal * math.sin(a2),
         )
 
-    index_tip = points[Hand.INDEX_TIP]
-    thumb_tip = (index_tip[0] - 0.55 * scale * pinch, index_tip[1] + 0.25 * scale * pinch, 0.0)
-    points[Hand.THUMB_TIP] = thumb_tip
-    points[Hand.THUMB_IP] = (thumb_tip[0] - 0.1 * scale, thumb_tip[1] + 0.15 * scale, 0.0)
     points[Hand.THUMB_MCP] = (cx - 0.35 * scale, cy + 0.7 * scale, 0.0)
     points[Hand.THUMB_CMC] = (cx - 0.30 * scale, cy + 0.9 * scale, 0.0)
+
+    if thumb == "up":
+        # Straight up out of the fist: past its own joint, and well clear of the
+        # fingers so it cannot read as reaching for the index.
+        points[Hand.THUMB_IP] = (cx - 0.38 * scale, cy + 0.20 * scale, 0.0)
+        points[Hand.THUMB_TIP] = (cx - 0.40 * scale, cy - 0.30 * scale, 0.0)
+    elif thumb == "folded":
+        # Bent over the front of the curled fingers, tip resting beside the
+        # index tip and no further from the wrist than its own joint.
+        points[Hand.THUMB_IP] = (cx - 0.30 * scale, cy + 0.48 * scale, 0.04 * scale)
+        points[Hand.THUMB_TIP] = (cx - 0.20 * scale, cy + 0.50 * scale, 0.08 * scale)
+    else:
+        index_tip = points[Hand.INDEX_TIP]
+        thumb_tip = (index_tip[0] - 0.55 * scale * pinch, index_tip[1] + 0.25 * scale * pinch, 0.0)
+        points[Hand.THUMB_TIP] = thumb_tip
+        points[Hand.THUMB_IP] = (thumb_tip[0] - 0.1 * scale, thumb_tip[1] + 0.15 * scale, 0.0)
+
     return HandSample(side=side, points=points, score=1.0)
 
 

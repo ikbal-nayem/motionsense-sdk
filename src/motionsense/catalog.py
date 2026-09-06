@@ -63,6 +63,8 @@ BUILTIN: tuple[ActivityDef, ...] = (
     _level("right_fist_open", "Right Fist Open", "Hands", "Right hand open with fingers extended.", _HANDS),
     _level("left_pinch", "Left Pinch", "Hands", "Left thumb and index fingertip touching.", _HANDS),
     _level("right_pinch", "Right Pinch", "Hands", "Right thumb and index fingertip touching.", _HANDS),
+    _level("left_thumbs_up", "Left Thumbs Up", "Hands", "Left hand closed with the thumb extended upward.", _HANDS),
+    _level("right_thumbs_up", "Right Thumbs Up", "Hands", "Right hand closed with the thumb extended upward.", _HANDS),
 )
 
 _registry: dict[str, ActivityDef] = {a.id: a for a in BUILTIN}

@@ -449,6 +449,63 @@ def test_pinch(make_harness):
     assert "left_pinch" in harness.held()
 
 
+def test_a_real_fist_does_not_report_a_pinch(make_harness):
+    """A fist folds the thumb across the curled index, so the two tips end up as
+    close together as a deliberate pinch puts them -- this hand's raw gap reads
+    0.245 against a 0.34 threshold. The gap alone therefore cannot tell the
+    gestures apart; the fingers a pinch does not use are what can."""
+    config = EngineConfig(preset="fast", enable_hands=True)
+    harness = make_harness(config)
+    hands = [(S.hand("right", curl=1.0, thumb="folded"),)] * 24
+    harness.run(standing(24), hands=hands)
+
+    assert "right_fist_closed" in harness.held()
+    assert "right_pinch" not in harness.held()
+
+
+def test_thumbs_up(make_harness):
+    config = EngineConfig(preset="fast", enable_hands=True)
+    harness = make_harness(config)
+    hands = [(S.hand("right", curl=1.0, thumb="folded"),)] * 12 + [
+        (S.hand("right", curl=1.0, thumb="up"),)
+    ] * 12
+    harness.run(standing(24), hands=hands)
+
+    assert "right_thumbs_up" in harness.held()
+
+
+def test_thumbs_up_does_not_also_report_a_fist(make_harness):
+    """A thumbs-up curls exactly the four fingers the fist gate watches, so both
+    would hold at once -- and a user who has mapped both is pressing two keys
+    with one gesture."""
+    config = EngineConfig(preset="fast", enable_hands=True)
+    harness = make_harness(config)
+    hands = [(S.hand("left", curl=1.0, thumb="up"),)] * 24
+    harness.run(standing(24), hands=hands)
+
+    assert harness.held() & {"left_thumbs_up", "left_fist_closed"} == {"left_thumbs_up"}
+
+
+def test_a_fist_is_not_a_thumbs_up(make_harness):
+    """The thumb is folded rather than extended, which is the whole difference."""
+    config = EngineConfig(preset="fast", enable_hands=True)
+    harness = make_harness(config)
+    hands = [(S.hand("right", curl=1.0, thumb="folded"),)] * 24
+    harness.run(standing(24), hands=hands)
+
+    assert "right_thumbs_up" not in harness.held()
+
+
+def test_an_open_hand_is_not_a_thumbs_up(make_harness):
+    """The thumb points up on an open hand too -- the fingers are what rule it out."""
+    config = EngineConfig(preset="fast", enable_hands=True)
+    harness = make_harness(config)
+    hands = [(S.hand("right", curl=0.0),)] * 24
+    harness.run(standing(24), hands=hands)
+
+    assert "right_thumbs_up" not in harness.held()
+
+
 def test_fist_closed_without_a_visible_body(make_harness):
     """A desk framing that only shows a hand still has no pose landmarks at
     all -- finger geometry does not need a body frame to be measured."""
